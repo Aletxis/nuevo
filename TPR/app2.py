@@ -244,53 +244,96 @@ elif seccion == "🛠️ Informe de Instalaciones":
 elif seccion == "📈 Gestión de Asesores":
     df_v = cargar_datos(URL_GESTION, "Ventas", limpiar_precios=True)
     if df_v is not None:
-        # CAMBIO: Ahora se utiliza la columna SIN IVA
+        # Configuración de columnas
         COL_MES, COL_ASESOR, COL_VALOR = 'MES COMERCIAL', 'ASESOR', 'VALOR MENSUAL A PAGAR SIN IVA'
         
         meses = sorted(df_v[COL_MES].dropna().unique().tolist(), reverse=True)
         mes_sel_gest = st.sidebar.selectbox("📅 Mes Comercial (Gestión):", meses)
         df_mes = df_v[df_v[COL_MES] == mes_sel_gest].copy()
+        
         v_sel_gest = st.sidebar.selectbox("👤 Seleccionar Vista:", ["TODOS LOS ASESORES"] + sorted(df_mes[COL_ASESOR].unique().tolist()))
         
         st.markdown(f'<div class="main-header">📈 Reporte: {v_sel_gest} ({mes_sel_gest})</div>', unsafe_allow_html=True)
         
         if v_sel_gest == "TODOS LOS ASESORES":
             c1, c2, c3 = st.columns(3)
-            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
-            # Cambio de etiqueta a "Recaudación (Sin IVA)"
-            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación (Sin IVA)</div><div class="image-value-number">${df_mes[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
-            with c3: st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio</div><div class="image-value-number">${df_mes[COL_VALOR].mean():,.2f}</div></div>', unsafe_allow_html=True)
+            with c1: 
+                st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
             
+            with c2: 
+                # Formato moneda en el KPI superior
+                total_recaudacion = df_mes[COL_VALOR].sum()
+                st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación (Sin IVA)</div><div class="image-value-number">${total_recaudacion:,.2f}</div></div>', unsafe_allow_html=True)
+            
+            with c3: 
+                promedio = df_mes[COL_VALOR].mean()
+                st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio</div><div class="image-value-number">${promedio:,.2f}</div></div>', unsafe_allow_html=True)
+            
+            # Agrupación para el ranking
             resumen = df_mes.groupby(COL_ASESOR).agg({COL_ASESOR: 'count', COL_VALOR: 'sum'}).rename(columns={COL_ASESOR: 'CANT.', COL_VALOR: 'MONTO'}).reset_index().sort_values('MONTO', ascending=False)
             
-            # --- NUEVA GRÁFICA DE BARRAS GLOBAL ---
+            # --- GRÁFICA DE BARRAS GLOBAL (CON FIX DE DECIMALES) ---
             st.markdown('<div class="section-title">🏆 Ranking de Recaudación por Asesor</div>', unsafe_allow_html=True)
-            fig_bar_global = px.bar(resumen, x='MONTO', y=COL_ASESOR, orientation='h', 
-                                     text='MONTO', color='MONTO', color_continuous_scale='Greens',
-                                     labels={'MONTO': 'Monto Recaudado', COL_ASESOR: 'Asesor'})
-            fig_bar_global.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
-            fig_bar_global.update_traces(texttemplate='$%{text:,.2f}', textposition='outside')
+            
+            fig_bar_global = px.bar(
+                resumen, 
+                x='MONTO', 
+                y=COL_ASESOR, 
+                orientation='h', 
+                text='MONTO', 
+                color='MONTO', 
+                color_continuous_scale='Greens',
+                labels={'MONTO': 'Monto Recaudado', COL_ASESOR: 'Asesor'},
+                # SOLUCIÓN HOVER: Formatea el recuadro que sale al pasar el mouse
+                hover_data={'MONTO': ':.2f'} 
+            )
+            
+            fig_bar_global.update_layout(
+                yaxis={'categoryorder':'total ascending'}, 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font_color="white"
+            )
+            
+            # Formatea el texto que aparece sobre la barra
+            fig_bar_global.update_traces(
+                texttemplate='$%{text:,.2f}', 
+                textposition='outside'
+            )
+            
             st.plotly_chart(fig_bar_global, use_container_width=True)
 
+            # --- TABLA Y PIE ---
             col_t, col_p = st.columns([1.2, 1])
-            with col_t: st.dataframe(resumen.style.format({'MONTO': '${:,.2f}'}), use_container_width=True, hide_index=True)
+            with col_t: 
+                # Tabla formateada con 2 decimales
+                st.dataframe(resumen.style.format({'MONTO': '${:,.2f}'}), use_container_width=True, hide_index=True)
+            
             with col_p:
                 fig_p = px.pie(resumen, values='MONTO', names=COL_ASESOR, hole=0.4, title="Participación en el Mercado")
+                # Fix de decimales para el gráfico de pastel
+                fig_p.update_traces(
+                    textinfo='percent+label', 
+                    hovertemplate='Asesor: %{label}<br>Monto: $%{value:.2f}'
+                )
                 fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_p, use_container_width=True)
+
         else:
+            # --- VISTA INDIVIDUAL ---
             df_ind = df_mes[df_mes[COL_ASESOR] == v_sel_gest].copy()
             c1, c2 = st.columns(2)
-            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
-            # Cambio de etiqueta a "Monto (Sin IVA)"
-            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto (Sin IVA)</div><div class="image-value-number">${df_ind[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
+            with c1: 
+                st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
             
-            # --- NUEVAS GRÁFICAS DE BARRAS INDIVIDUALES (MIX Y ZONAS) ---
+            with c2: 
+                monto_ind = df_ind[COL_VALOR].sum()
+                st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto (Sin IVA)</div><div class="image-value-number">${monto_ind:,.2f}</div></div>', unsafe_allow_html=True)
+            
             st.markdown(f'<div class="section-title">🔍 Análisis Detallado: {v_sel_gest}</div>', unsafe_allow_html=True)
             g1, g2 = st.columns(2)
             
             with g1:
-                # Barras por Producto
                 df_prod = df_ind['PRODUCTO'].value_counts().reset_index()
                 df_prod.columns = ['PRODUCTO_NAME', 'VENTAS']
                 fig_prod = px.bar(df_prod, x='VENTAS', y='PRODUCTO_NAME', orientation='h', 
@@ -300,7 +343,6 @@ elif seccion == "📈 Gestión de Asesores":
                 st.plotly_chart(fig_prod, use_container_width=True)
                 
             with g2:
-                # Barras por Sector
                 df_sector = df_ind['SECTOR'].value_counts().reset_index()
                 df_sector.columns = ['SECTOR_NAME', 'VENTAS']
                 fig_sector = px.bar(df_sector, x='VENTAS', y='SECTOR_NAME', orientation='h', 
@@ -311,4 +353,10 @@ elif seccion == "📈 Gestión de Asesores":
 
             st.markdown('<div class="section-title">📋 Listado de Clientes</div>', unsafe_allow_html=True)
             columnas_finales = [c for c in ['CLIENTE ', 'PRODUCTO', 'PAQUETE', COL_VALOR, 'SECTOR', 'FECHA DE INSTALACION'] if c in df_ind.columns]
-            st.dataframe(df_ind[columnas_finales], use_container_width=True, hide_index=True)
+            
+            # Mostrar tabla individual con formato de moneda en la columna de valor
+            st.dataframe(
+                df_ind[columnas_finales].style.format({COL_VALOR: '${:,.2f}'}), 
+                use_container_width=True, 
+                hide_index=True
+            )
