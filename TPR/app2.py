@@ -6,7 +6,7 @@ from thefuzz import process
 import re
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Inmovision - Dashboard Corporativo", layout="wide")
+st.set_page_config(page_title="Futurity", layout="wide")
 
 # 2. CSS UNIFICADO (Mantiene estilos de tarjetas corporativas)
 st.markdown("""
