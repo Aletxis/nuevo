@@ -194,31 +194,7 @@ elif seccion == "🛠️ Informe de Instalaciones":
                     df_f = df_f[df_f['VENDEDOR'] == vendedor_sel]
                 
                 if not df_f.empty:
-                    # --- CABECERA ---
-                    col_precio = 'PRECIO DEL PLAN CON IVA' if 'PRECIO DEL PLAN CON IVA' in df_f.columns else df_f.columns[-2]
-                    monto_total = pd.to_numeric(df_f[col_precio], errors='coerce').sum()
-                    ventas_comprobadas = len(df_f[pd.to_numeric(df_f[col_precio], errors='coerce') > 0])
-
-                    st.markdown(f'''
-                        <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                            <div class="card-image-style border-green">
-                                <div class="image-label">MONTO TOTAL VENDIDO ({vendedor_sel})</div>
-                                <div class="image-value-number" style="font-size: 38px;">${monto_total:,.2f}</div>
-                            </div>
-                            <div class="card-image-style border-blue">
-                                <div class="image-label">VENTAS COMPROBADAS</div>
-                                <div class="image-value-number" style="font-size: 38px;">{ventas_comprobadas}</div>
-                            </div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-
-                    # --- 1. TABLA ---
-                    st.markdown("### 📋 Registros en este rango")
-                    df_f_display = df_f.copy()
-                    df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
-                    st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
-
-                    # --- 2. TARJETAS DE ESTADO ---
+                    # --- 1. RESUMEN POR ESTADO (TARJETAS) ---
                     st.markdown("### 📊 Resumen por Estado")
                     df_graf = df_f['ESTADO'].value_counts().reset_index()
                     df_graf.columns = ['ESTADO_REAL', 'CANTIDAD']
@@ -237,20 +213,27 @@ elif seccion == "🛠️ Informe de Instalaciones":
                                 </div>
                             ''', unsafe_allow_html=True)
 
-                    # --- 3. GRÁFICO ---
+                    # --- 2. GRÁFICO ---
                     fig = px.bar(df_graf, x='CANTIDAD', y='ESTADO_REAL', orientation='h', text='CANTIDAD', color='ESTADO_REAL')
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # --- 4. PRODUCTO ESTRELLA ---
+                    # --- 3. PRODUCTO ESTRELLA ---
                     if 'PRODUCTO' in df_f.columns:
                         prod_estrella = df_f['PRODUCTO'].value_counts().idxmax()
                         st.markdown(f'''
-                            <div class="card-image-style border-green" style="margin-top: 25px;">
+                            <div class="card-image-style border-green" style="margin-top: 25px; margin-bottom: 25px;">
                                 <div class="image-label">PRODUCTO ESTRELLA</div>
                                 <div class="image-value-number" style="font-size: 45px;">{str(prod_estrella).upper()}</div>
                             </div>
                         ''', unsafe_allow_html=True)
+
+                    # --- 4. TABLA AL FINAL ---
+                    st.markdown("### 📋 Registros en este rango")
+                    df_f_display = df_f.copy()
+                    df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
+                    st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
+
                 else:
                     st.warning("No hay registros para los estados seleccionados.")
     else:
