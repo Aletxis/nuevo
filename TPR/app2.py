@@ -193,31 +193,7 @@ elif seccion == "🛠️ Informe de Instalaciones":
                     df_f = df_f[df_f['VENDEDOR'] == vendedor_sel]
                 
                 if not df_f.empty:
-                    # --- CABECERA ---
-                    col_precio = 'PRECIO DEL PLAN CON IVA' if 'PRECIO DEL PLAN CON IVA' in df_f.columns else df_f.columns[-2]
-                    monto_total = pd.to_numeric(df_f[col_precio], errors='coerce').sum()
-                    ventas_comprobadas = len(df_f[pd.to_numeric(df_f[col_precio], errors='coerce') > 0])
-
-                    st.markdown(f'''
-                        <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                            <div class="card-image-style border-green">
-                                <div class="image-label">MONTO TOTAL VENDIDO ({vendedor_sel})</div>
-                                <div class="image-value-number" style="font-size: 38px;">${monto_total:,.2f}</div>
-                            </div>
-                            <div class="card-image-style border-blue">
-                                <div class="image-label">VENTAS COMPROBADAS</div>
-                                <div class="image-value-number" style="font-size: 38px;">{ventas_comprobadas}</div>
-                            </div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-
-                    # --- 1. TABLA ---
-                    st.markdown("### 📋 Registros en este rango")
-                    df_f_display = df_f.copy()
-                    df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
-                    st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
-
-                    # --- 2. TARJETAS DE ESTADO ---
+                    # --- 1. RESUMEN POR ESTADO (TARJETAS) ---
                     st.markdown("### 📊 Resumen por Estado")
                     df_graf = df_f['ESTADO'].value_counts().reset_index()
                     df_graf.columns = ['ESTADO_REAL', 'CANTIDAD']
@@ -236,32 +212,40 @@ elif seccion == "🛠️ Informe de Instalaciones":
                                 </div>
                             ''', unsafe_allow_html=True)
 
-                    # --- 3. GRÁFICO ---
+                    # --- 2. GRÁFICO ---
                     fig = px.bar(df_graf, x='CANTIDAD', y='ESTADO_REAL', orientation='h', text='CANTIDAD', color='ESTADO_REAL')
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # --- 4. PRODUCTO ESTRELLA ---
+                    # --- 3. PRODUCTO ESTRELLA ---
                     if 'PRODUCTO' in df_f.columns:
                         prod_estrella = df_f['PRODUCTO'].value_counts().idxmax()
                         st.markdown(f'''
-                            <div class="card-image-style border-green" style="margin-top: 25px;">
+                            <div class="card-image-style border-green" style="margin-top: 25px; margin-bottom: 25px;">
                                 <div class="image-label">PRODUCTO ESTRELLA</div>
                                 <div class="image-value-number" style="font-size: 45px;">{str(prod_estrella).upper()}</div>
                             </div>
                         ''', unsafe_allow_html=True)
+
+                    # --- 4. TABLA AL FINAL ---
+                    st.markdown("### 📋 Registros en este rango")
+                    df_f_display = df_f.copy()
+                    df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
+                    st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
+
                 else:
                     st.warning("No hay registros para los estados seleccionados.")
     else:
         st.error("Error al cargar datos del periodo.")
-
 # ==========================================
 # MÓDULO 3: GESTIÓN DE ASESORES (MODIFICADO)
 # ==========================================
 elif seccion == "📈 Gestión de Asesores":
     df_v = cargar_datos(URL_GESTION, "Ventas", limpiar_precios=True)
     if df_v is not None:
-        COL_MES, COL_ASESOR, COL_VALOR = 'MES COMERCIAL', 'ASESOR', 'VALOR MENSUAL A PAGAR INCLUIDO IVA'
+        # CAMBIO: Ahora se utiliza la columna SIN IVA
+        COL_MES, COL_ASESOR, COL_VALOR = 'MES COMERCIAL', 'ASESOR', 'VALOR MENSUAL A PAGAR SIN IVA'
+        
         meses = sorted(df_v[COL_MES].dropna().unique().tolist(), reverse=True)
         mes_sel_gest = st.sidebar.selectbox("📅 Mes Comercial (Gestión):", meses)
         df_mes = df_v[df_v[COL_MES] == mes_sel_gest].copy()
@@ -272,7 +256,8 @@ elif seccion == "📈 Gestión de Asesores":
         if v_sel_gest == "TODOS LOS ASESORES":
             c1, c2, c3 = st.columns(3)
             with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
-            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación</div><div class="image-value-number">${df_mes[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
+            # Cambio de etiqueta a "Recaudación (Sin IVA)"
+            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación (Sin IVA)</div><div class="image-value-number">${df_mes[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
             with c3: st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio</div><div class="image-value-number">${df_mes[COL_VALOR].mean():,.2f}</div></div>', unsafe_allow_html=True)
             
             resumen = df_mes.groupby(COL_ASESOR).agg({COL_ASESOR: 'count', COL_VALOR: 'sum'}).rename(columns={COL_ASESOR: 'CANT.', COL_VALOR: 'MONTO'}).reset_index().sort_values('MONTO', ascending=False)
@@ -296,7 +281,8 @@ elif seccion == "📈 Gestión de Asesores":
             df_ind = df_mes[df_mes[COL_ASESOR] == v_sel_gest].copy()
             c1, c2 = st.columns(2)
             with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
-            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto</div><div class="image-value-number">${df_ind[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
+            # Cambio de etiqueta a "Monto (Sin IVA)"
+            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto (Sin IVA)</div><div class="image-value-number">${df_ind[COL_VALOR].sum():,.2f}</div></div>', unsafe_allow_html=True)
             
             # --- NUEVAS GRÁFICAS DE BARRAS INDIVIDUALES (MIX Y ZONAS) ---
             st.markdown(f'<div class="section-title">🔍 Análisis Detallado: {v_sel_gest}</div>', unsafe_allow_html=True)
