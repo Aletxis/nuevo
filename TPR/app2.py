@@ -6,9 +6,9 @@ from thefuzz import process
 import re
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Futurity", layout="wide")
+st.set_page_config(page_title="Inmovision - Dashboard Corporativo", layout="wide")
 
-# 2. CSS UNIFICADO (Mantiene estilos de tarjetas corporativas)
+# 2. CSS UNIFICADO
 st.markdown("""
     <style>
     [data-testid="bundle-lib-sidebar-close-icon"], 
@@ -60,7 +60,6 @@ def cargar_datos(url, nombre_hoja, limpiar_precios=False):
         df = pd.read_excel(export_url, sheet_name=nombre_hoja)
         df.columns = [str(c).strip().upper() for c in df.columns]
         if limpiar_precios:
-            # CAMBIO: Se asegura de limpiar la columna SIN IVA para que los cálculos funcionen
             for col in ['VALOR MENSUAL A PAGAR INCLUIDO IVA', 'VALOR MENSUAL A PAGAR SIN IVA']:
                 if col in df.columns:
                     df[col] = df[col].apply(limpiar_monto)
@@ -82,6 +81,12 @@ VENDEDORES_PERMITIDOS = [
     "WILLIAM BRITO", "WILLIAN MOLINA"
 ]
 
+# --- FILTRO MAESTRO PARA EXCLUIR FILAS DE CÁLCULO Y PERSONAL NO COMERCIAL ---
+PALABRAS_FILTRO = [
+    'SUMATORIA', 'RESUMEN', 'TOTAL', 'DIARIA', 'MARZO', 'ABRIL', 'MAYO', 
+    'JUNIO', 'TÉCNICO', 'TECNICO', 'PERSONAL NO COMERCIAL',"EMBAJADORA MAYRA MACHUCA", "EMBAJADORA NAYELI JUELA"
+]
+
 try:
     file_id_v = URL_VENTAS.split('/')[-2]
     xls_v = pd.ExcelFile(f'https://docs.google.com/spreadsheets/d/{file_id_v}/export?format=xlsx')
@@ -92,7 +97,7 @@ st.sidebar.markdown(f'<img src="{URL_LOGO}" class="logo-sidebar">', unsafe_allow
 seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores"])
 
 # ==========================================
-# MÓDULO 1: CONTROL DE VENTAS (MANTENIDO)
+# MÓDULO 1: CONTROL DE VENTAS
 # ==========================================
 if seccion == "📊 Control de Ventas":
     try:
@@ -102,10 +107,19 @@ if seccion == "📊 Control de Ventas":
 
         if df_ventas is not None:
             col_vendedor = df_ventas.columns[0]
-            df_ventas[col_vendedor] = df_ventas[col_vendedor].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
+            
+            # FILTRADO DINÁMICO DE ASESORES PARA EL SELECTBOX
+            vendedores_en_hoja = df_ventas[col_vendedor].dropna().unique()
+            v_unicos = []
+            for v in vendedores_en_hoja:
+                v_str = str(v).upper()
+                if not any(palabra in v_str for palabra in PALABRAS_FILTRO):
+                    nombre_limpio = corregir_nombre(v, VENDEDORES_PERMITIDOS)
+                    if nombre_limpio != "DESCONOCIDO":
+                        v_unicos.append(nombre_limpio)
+            v_unicos = sorted(list(set(v_unicos)))
             
             ver_todo = st.sidebar.checkbox("Ver Resumen General del Mes")
-            v_unicos = sorted(list(set([v for v in df_ventas[col_vendedor].unique() if v in VENDEDORES_PERMITIDOS])))
             vendedor_sel = st.sidebar.selectbox("👤 Seleccionar Asesor:", v_unicos)
 
             if ver_todo:
@@ -113,14 +127,24 @@ if seccion == "📊 Control de Ventas":
                 columnas_total = [c for c in df_ventas.columns if 'TOTAL' in str(c).upper() and c != col_vendedor]
                 if columnas_total:
                     col_total_name = columnas_total[0]
-                    resumen = df_ventas[df_ventas[col_vendedor].isin(VENDEDORES_PERMITIDOS)].copy()
-                    resumen = resumen[[col_vendedor, col_total_name]]
+                    resumen = df_ventas[[col_vendedor, col_total_name]].copy()
                     resumen.columns = ['Vendedor', 'Monto Total']
+                    
+                    # FILTRO CRÍTICO: Eliminar filas basura del cálculo consolidado
+                    resumen['V_UPPER'] = resumen['Vendedor'].apply(lambda x: str(x).upper())
+                    mask_basura = resumen['V_UPPER'].apply(lambda x: any(p in x for p in PALABRAS_FILTRO))
+                    resumen = resumen[~mask_basura]
+                    
+                    resumen['Vendedor'] = resumen['Vendedor'].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
+                    resumen = resumen[resumen['Vendedor'] != "DESCONOCIDO"]
                     resumen['Monto Total'] = pd.to_numeric(resumen['Monto Total'], errors='coerce').fillna(0)
                     resumen = resumen[resumen['Monto Total'] > 0].sort_values(by='Monto Total', ascending=False)
+                    
+                    # Cálculo real de la venta consolidada
                     st.markdown(f'<div style="background-color:#1a1c24; border:1px solid #4CAF50; border-radius:12px; padding:25px; text-align:center; margin-bottom:20px;"><div class="total-label" style="color:#4CAF50">Venta Total Consolidada</div><div style="font-size:45px; font-weight:bold; color:#4CAF50;">${resumen["Monto Total"].sum():,.2f}</div></div>', unsafe_allow_html=True)
+                    
                     c1, c2 = st.columns([1, 1])
-                    with c1: st.dataframe(resumen, use_container_width=True, hide_index=True)
+                    with c1: st.dataframe(resumen[['Vendedor', 'Monto Total']], use_container_width=True, hide_index=True)
                     with c2:
                         fig_pie = px.pie(resumen, values='Monto Total', names='Vendedor', hole=0.4, title="Participación")
                         fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
@@ -128,7 +152,9 @@ if seccion == "📊 Control de Ventas":
 
             elif vendedor_sel:
                 st.markdown(f'<div class="asesor-header">👤 Asesor: {vendedor_sel}</div>', unsafe_allow_html=True)
+                df_ventas[col_vendedor] = df_ventas[col_vendedor].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
                 fila_v = df_ventas[df_ventas[col_vendedor] == vendedor_sel]
+                
                 cols_excluir = [col_vendedor] + [c for c in df_ventas.columns if 'TOTAL' in str(c).upper()]
                 cols_datos = [c for c in df_ventas.columns if c not in cols_excluir]
                 datos_fila = fila_v[cols_datos].T.reset_index().iloc[:, :2]
@@ -162,201 +188,103 @@ if seccion == "📊 Control de Ventas":
     except Exception as e:
         st.error(f"Error en ventas: {e}")
 
-# ==========================================
-# MÓDULO 2: INFORME DE INSTALACIONES (MANTENIDO)
-# ==========================================
+# Módulos 2 y 3 (Se mantienen operativos con el resto de la lógica)
 elif seccion == "🛠️ Informe de Instalaciones":
     st.markdown('<div class="asesor-header">🛠️ Control de Instalaciones y Cumplimiento</div>', unsafe_allow_html=True)
-    
     if mapa_meses:
         mes_sel = st.sidebar.selectbox("📅 Seleccionar Periodo (Mes):", list(mapa_meses.keys()))
         df_inst = cargar_datos(URL_INSTALACIONES, "Instalaciones")
         df_ref_mes = cargar_datos(URL_VENTAS, mapa_meses[mes_sel])
-
         if df_inst is not None and df_ref_mes is not None:
             cols_fechas = [c for c in df_ref_mes.columns if any(char.isdigit() for char in str(c))]
             f_dt = pd.to_datetime(cols_fechas, errors='coerce').dropna()
-            
             if not f_dt.empty:
                 f_min, f_max = f_dt.min(), f_dt.max()
                 df_inst['FECHA'] = pd.to_datetime(df_inst['FECHA'], errors='coerce')
                 df_inst['VENDEDOR'] = df_inst['VENDEDOR'].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
-                
                 df_por_fecha = df_inst[(df_inst['FECHA'] >= f_min) & (df_inst['FECHA'] <= f_max)].copy()
                 vendedores_con_datos = sorted([v for v in df_por_fecha['VENDEDOR'].unique() if v in VENDEDORES_PERMITIDOS])
                 vendedor_sel = st.sidebar.selectbox("👤 Seleccionar Vendedor:", ["TODOS"] + vendedores_con_datos)
-                
                 estados_totales = df_por_fecha['ESTADO'].unique().tolist()
                 estados_sel = st.sidebar.multiselect("📋 Filtrar por Estado:", estados_totales, default=estados_totales)
-
                 df_f = df_por_fecha[df_por_fecha['ESTADO'].isin(estados_sel)].copy()
-                if vendedor_sel != "TODOS":
-                    df_f = df_f[df_f['VENDEDOR'] == vendedor_sel]
+                if vendedor_sel != "TODOS": df_f = df_f[df_f['VENDEDOR'] == vendedor_sel]
                 
                 if not df_f.empty:
-                    # --- 1. RESUMEN POR ESTADO (TARJETAS) ---
                     st.markdown("### 📊 Resumen por Estado")
                     df_graf = df_f['ESTADO'].value_counts().reset_index()
                     df_graf.columns = ['ESTADO_REAL', 'CANTIDAD']
-                    
                     cols_cards = st.columns(len(df_graf))
                     for i, row in df_graf.iterrows():
-                        nombre_est = str(row['ESTADO_REAL']).upper()
-                        valor_est = row['CANTIDAD']
+                        nombre_est, valor_est = str(row['ESTADO_REAL']).upper(), row['CANTIDAD']
                         color_c = "border-green" if i == 0 else "border-blue"
                         with cols_cards[i]:
-                            st.markdown(f'''
-                                <div class="card-image-style {color_c}">
-                                    <div class="image-label">ESTADO</div>
-                                    <div class="image-value-number" style="font-size: 18px; min-height: 40px; display: flex; align-items: center; justify-content: center;">{nombre_est}</div>
-                                    <div class="image-value-number" style="font-size: 48px; margin-top: 10px;">{valor_est}</div>
-                                </div>
-                            ''', unsafe_allow_html=True)
-
-                    # --- 2. GRÁFICO ---
+                            st.markdown(f'<div class="card-image-style {color_c}"><div class="image-label">ESTADO</div><div class="image-value-number" style="font-size: 18px; min-height: 40px; display: flex; align-items: center; justify-content: center;">{nombre_est}</div><div class="image-value-number" style="font-size: 48px; margin-top: 10px;">{valor_est}</div></div>', unsafe_allow_html=True)
                     fig = px.bar(df_graf, x='CANTIDAD', y='ESTADO_REAL', orientation='h', text='CANTIDAD', color='ESTADO_REAL')
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
-
-                    # --- 3. PRODUCTO ESTRELLA ---
                     if 'PRODUCTO' in df_f.columns:
                         prod_estrella = df_f['PRODUCTO'].value_counts().idxmax()
-                        st.markdown(f'''
-                            <div class="card-image-style border-green" style="margin-top: 25px; margin-bottom: 25px;">
-                                <div class="image-label">PRODUCTO ESTRELLA</div>
-                                <div class="image-value-number" style="font-size: 45px;">{str(prod_estrella).upper()}</div>
-                            </div>
-                        ''', unsafe_allow_html=True)
-
-                    # --- 4. TABLA AL FINAL ---
+                        st.markdown(f'<div class="card-image-style border-green" style="margin-top: 25px; margin-bottom: 25px;"><div class="image-label">PRODUCTO ESTRELLA</div><div class="image-value-number" style="font-size: 45px;">{str(prod_estrella).upper()}</div></div>', unsafe_allow_html=True)
                     st.markdown("### 📋 Registros en este rango")
                     df_f_display = df_f.copy()
                     df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
                     st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
 
-                else:
-                    st.warning("No hay registros para los estados seleccionados.")
-    else:
-        st.error("Error al cargar datos del periodo.")
-# ==========================================
-# MÓDULO 3: GESTIÓN DE ASESORES (MODIFICADO SIN IVA)
-# ==========================================
 elif seccion == "📈 Gestión de Asesores":
     df_v = cargar_datos(URL_GESTION, "Ventas", limpiar_precios=True)
     if df_v is not None:
-        # Configuración de columnas
         COL_MES, COL_ASESOR, COL_VALOR = 'MES COMERCIAL', 'ASESOR', 'VALOR MENSUAL A PAGAR SIN IVA'
-        
         meses = sorted(df_v[COL_MES].dropna().unique().tolist(), reverse=True)
         mes_sel_gest = st.sidebar.selectbox("📅 Mes Comercial (Gestión):", meses)
         df_mes = df_v[df_v[COL_MES] == mes_sel_gest].copy()
-        
         v_sel_gest = st.sidebar.selectbox("👤 Seleccionar Vista:", ["TODOS LOS ASESORES"] + sorted(df_mes[COL_ASESOR].unique().tolist()))
-        
         st.markdown(f'<div class="main-header">📈 Reporte: {v_sel_gest} ({mes_sel_gest})</div>', unsafe_allow_html=True)
         
         if v_sel_gest == "TODOS LOS ASESORES":
             c1, c2, c3 = st.columns(3)
-            with c1: 
-                st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
-            
+            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
             with c2: 
-                # Formato moneda en el KPI superior
                 total_recaudacion = df_mes[COL_VALOR].sum()
                 st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación (Sin IVA)</div><div class="image-value-number">${total_recaudacion:,.2f}</div></div>', unsafe_allow_html=True)
-            
             with c3: 
                 promedio = df_mes[COL_VALOR].mean()
                 st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio</div><div class="image-value-number">${promedio:,.2f}</div></div>', unsafe_allow_html=True)
             
-            # Agrupación para el ranking
             resumen = df_mes.groupby(COL_ASESOR).agg({COL_ASESOR: 'count', COL_VALOR: 'sum'}).rename(columns={COL_ASESOR: 'CANT.', COL_VALOR: 'MONTO'}).reset_index().sort_values('MONTO', ascending=False)
-            
-            # --- GRÁFICA DE BARRAS GLOBAL (CON FIX DE DECIMALES) ---
             st.markdown('<div class="section-title">🏆 Ranking de Recaudación por Asesor</div>', unsafe_allow_html=True)
-            
-            fig_bar_global = px.bar(
-                resumen, 
-                x='MONTO', 
-                y=COL_ASESOR, 
-                orientation='h', 
-                text='MONTO', 
-                color='MONTO', 
-                color_continuous_scale='Greens',
-                labels={'MONTO': 'Monto Recaudado', COL_ASESOR: 'Asesor'},
-                # SOLUCIÓN HOVER: Formatea el recuadro que sale al pasar el mouse
-                hover_data={'MONTO': ':.2f'} 
-            )
-            
-            fig_bar_global.update_layout(
-                yaxis={'categoryorder':'total ascending'}, 
-                paper_bgcolor='rgba(0,0,0,0)', 
-                plot_bgcolor='rgba(0,0,0,0)', 
-                font_color="white"
-            )
-            
-            # Formatea el texto que aparece sobre la barra
-            fig_bar_global.update_traces(
-                texttemplate='$%{text:,.2f}', 
-                textposition='outside'
-            )
-            
+            fig_bar_global = px.bar(resumen, x='MONTO', y=COL_ASESOR, orientation='h', text='MONTO', color='MONTO', color_continuous_scale='Greens', labels={'MONTO': 'Monto Recaudado', COL_ASESOR: 'Asesor'}, hover_data={'MONTO': ':.2f'})
+            fig_bar_global.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+            fig_bar_global.update_traces(texttemplate='$%{text:,.2f}', textposition='outside')
             st.plotly_chart(fig_bar_global, use_container_width=True)
-
-            # --- TABLA Y PIE ---
             col_t, col_p = st.columns([1.2, 1])
-            with col_t: 
-                # Tabla formateada con 2 decimales
-                st.dataframe(resumen.style.format({'MONTO': '${:,.2f}'}), use_container_width=True, hide_index=True)
-            
+            with col_t: st.dataframe(resumen.style.format({'MONTO': '${:,.2f}'}), use_container_width=True, hide_index=True)
             with col_p:
                 fig_p = px.pie(resumen, values='MONTO', names=COL_ASESOR, hole=0.4, title="Participación en el Mercado")
-                # Fix de decimales para el gráfico de pastel
-                fig_p.update_traces(
-                    textinfo='percent+label', 
-                    hovertemplate='Asesor: %{label}<br>Monto: $%{value:.2f}'
-                )
+                fig_p.update_traces(textinfo='percent+label', hovertemplate='Asesor: %{label}<br>Monto: $%{value:.2f}')
                 fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_p, use_container_width=True)
-
         else:
-            # --- VISTA INDIVIDUAL ---
             df_ind = df_mes[df_mes[COL_ASESOR] == v_sel_gest].copy()
             c1, c2 = st.columns(2)
-            with c1: 
-                st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
-            
+            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
             with c2: 
                 monto_ind = df_ind[COL_VALOR].sum()
                 st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto (Sin IVA)</div><div class="image-value-number">${monto_ind:,.2f}</div></div>', unsafe_allow_html=True)
-            
             st.markdown(f'<div class="section-title">🔍 Análisis Detallado: {v_sel_gest}</div>', unsafe_allow_html=True)
             g1, g2 = st.columns(2)
-            
             with g1:
                 df_prod = df_ind['PRODUCTO'].value_counts().reset_index()
                 df_prod.columns = ['PRODUCTO_NAME', 'VENTAS']
-                fig_prod = px.bar(df_prod, x='VENTAS', y='PRODUCTO_NAME', orientation='h', 
-                                   title="Mix de Productos Vendidos", text='VENTAS', color='VENTAS',
-                                   color_continuous_scale='Blues')
+                fig_prod = px.bar(df_prod, x='VENTAS', y='PRODUCTO_NAME', orientation='h', title="Mix de Productos Vendidos", text='VENTAS', color='VENTAS', color_continuous_scale='Blues')
                 fig_prod.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_prod, use_container_width=True)
-                
             with g2:
                 df_sector = df_ind['SECTOR'].value_counts().reset_index()
                 df_sector.columns = ['SECTOR_NAME', 'VENTAS']
-                fig_sector = px.bar(df_sector, x='VENTAS', y='SECTOR_NAME', orientation='h', 
-                                     title="Distribución Geográfica de Ventas", text='VENTAS', color='VENTAS',
-                                     color_continuous_scale='Oranges')
+                fig_sector = px.bar(df_sector, x='VENTAS', y='SECTOR_NAME', orientation='h', title="Distribución Geográfica de Ventas", text='VENTAS', color='VENTAS', color_continuous_scale='Oranges')
                 fig_sector.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_sector, use_container_width=True)
-
             st.markdown('<div class="section-title">📋 Listado de Clientes</div>', unsafe_allow_html=True)
             columnas_finales = [c for c in ['CLIENTE ', 'PRODUCTO', 'PAQUETE', COL_VALOR, 'SECTOR', 'FECHA DE INSTALACION'] if c in df_ind.columns]
-            
-            # Mostrar tabla individual con formato de moneda en la columna de valor
-            st.dataframe(
-                df_ind[columnas_finales].style.format({COL_VALOR: '${:,.2f}'}), 
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(df_ind[columnas_finales].style.format({COL_VALOR: '${:,.2f}'}), use_container_width=True, hide_index=True)
