@@ -6,7 +6,7 @@ from thefuzz import process
 import re
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Inmovision - Dashboard Corporativo", layout="wide")
+st.set_page_config(page_title="FUTURITY", layout="wide")
 
 # --- INICIALIZACIÓN DE LINKS DINÁMICOS (SESSION STATE) ---
 if 'url_ventas' not in st.session_state:
