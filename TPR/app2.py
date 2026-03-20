@@ -8,6 +8,14 @@ import re
 # 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Inmovision - Dashboard Corporativo", layout="wide")
 
+# --- INICIALIZACIÓN DE LINKS DINÁMICOS (SESSION STATE) ---
+if 'url_ventas' not in st.session_state:
+    st.session_state.url_ventas = "https://docs.google.com/spreadsheets/d/18WS22r1Fml5a9qW3fJOj40d0h7aldJVj/edit?usp=sharing"
+if 'url_instalaciones' not in st.session_state:
+    st.session_state.url_instalaciones = "https://docs.google.com/spreadsheets/d/1QqH8lGktix5YLV7seIL9cXUxWCaANauM/edit?usp=sharing"
+if 'url_gestion' not in st.session_state:
+    st.session_state.url_gestion = "https://docs.google.com/spreadsheets/d/1z_Y-dSghRs0nuFwOm6Eh_ZTPE-RKRVcj/edit?usp=sharing"
+
 # 2. CSS UNIFICADO
 st.markdown("""
     <style>
@@ -67,9 +75,6 @@ def cargar_datos(url, nombre_hoja, limpiar_precios=False):
     except: return None
 
 # 4. RECURSOS
-URL_VENTAS = "https://docs.google.com/spreadsheets/d/18WS22r1Fml5a9qW3fJOj40d0h7aldJVj/edit?usp=sharing"
-URL_INSTALACIONES = "https://docs.google.com/spreadsheets/d/1QqH8lGktix5YLV7seIL9cXUxWCaANauM/edit?usp=sharing"
-URL_GESTION = "https://docs.google.com/spreadsheets/d/1z_Y-dSghRs0nuFwOm6Eh_ZTPE-RKRVcj/edit?usp=sharing"
 URL_LOGO = "https://lh4.googleusercontent.com/proxy/SeW7l23MFgElfFnJzA8WsomRRdBeiXYsMuQMdiB6_m4J0N0j7RGAB09PNGAO-uUPhKMPITGfAgagRh76fzbODUl3jU3utoz20hT2W99Q7BODxV-g" 
 
 VENDEDORES_PERMITIDOS = [
@@ -81,20 +86,32 @@ VENDEDORES_PERMITIDOS = [
     "WILLIAM BRITO", "WILLIAN MOLINA"
 ]
 
-# --- FILTRO MAESTRO PARA EXCLUIR FILAS DE CÁLCULO Y PERSONAL NO COMERCIAL ---
 PALABRAS_FILTRO = [
     'SUMATORIA', 'RESUMEN', 'TOTAL', 'DIARIA', 'MARZO', 'ABRIL', 'MAYO', 
     'JUNIO', 'TÉCNICO', 'TECNICO', 'PERSONAL NO COMERCIAL',"EMBAJADORA MAYRA MACHUCA", "EMBAJADORA NAYELI JUELA"
 ]
 
+# --- CONFIGURACIÓN DE BARRA LATERAL ---
+st.sidebar.markdown(f'<img src="{URL_LOGO}" class="logo-sidebar">', unsafe_allow_html=True)
+
+# NUEVA FUNCIÓN: Cambio de Links
+with st.sidebar.expander("⚙️ Configuración de Google Sheets"):
+    st.session_state.url_ventas = st.text_input("Link Control Ventas:", st.session_state.url_ventas)
+    st.session_state.url_instalaciones = st.text_input("Link Instalaciones:", st.session_state.url_instalaciones)
+    st.session_state.url_gestion = st.text_input("Link Gestión Asesores:", st.session_state.url_gestion)
+    if st.button("🔄 Actualizar y Recargar"):
+        st.cache_data.clear()
+        st.rerun()
+
+st.sidebar.markdown("---")
+seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores"])
+
+# Carga inicial de meses (usando el link dinámico de Ventas)
 try:
-    file_id_v = URL_VENTAS.split('/')[-2]
+    file_id_v = st.session_state.url_ventas.split('/')[-2]
     xls_v = pd.ExcelFile(f'https://docs.google.com/spreadsheets/d/{file_id_v}/export?format=xlsx')
     mapa_meses = {str(h).lower(): h for h in xls_v.sheet_names if str(h).upper() not in ['VARIABLES', 'VENTAS']}
 except: mapa_meses = {}
-
-st.sidebar.markdown(f'<img src="{URL_LOGO}" class="logo-sidebar">', unsafe_allow_html=True)
-seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores"])
 
 # ==========================================
 # MÓDULO 1: CONTROL DE VENTAS
@@ -102,13 +119,11 @@ seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Infor
 if seccion == "📊 Control de Ventas":
     try:
         mes_sel_display = st.sidebar.selectbox("📅 Mes a consultar:", list(mapa_meses.keys()))
-        df_ventas = cargar_datos(URL_VENTAS, mapa_meses[mes_sel_display])
-        df_inst_conteo = cargar_datos(URL_INSTALACIONES, "Instalaciones")
+        df_ventas = cargar_datos(st.session_state.url_ventas, mapa_meses[mes_sel_display])
+        df_inst_conteo = cargar_datos(st.session_state.url_instalaciones, "Instalaciones")
 
         if df_ventas is not None:
             col_vendedor = df_ventas.columns[0]
-            
-            # FILTRADO DINÁMICO DE ASESORES PARA EL SELECTBOX
             vendedores_en_hoja = df_ventas[col_vendedor].dropna().unique()
             v_unicos = []
             for v in vendedores_en_hoja:
@@ -129,18 +144,14 @@ if seccion == "📊 Control de Ventas":
                     col_total_name = columnas_total[0]
                     resumen = df_ventas[[col_vendedor, col_total_name]].copy()
                     resumen.columns = ['Vendedor', 'Monto Total']
-                    
-                    # FILTRO CRÍTICO: Eliminar filas basura del cálculo consolidado
                     resumen['V_UPPER'] = resumen['Vendedor'].apply(lambda x: str(x).upper())
                     mask_basura = resumen['V_UPPER'].apply(lambda x: any(p in x for p in PALABRAS_FILTRO))
                     resumen = resumen[~mask_basura]
-                    
                     resumen['Vendedor'] = resumen['Vendedor'].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
                     resumen = resumen[resumen['Vendedor'] != "DESCONOCIDO"]
                     resumen['Monto Total'] = pd.to_numeric(resumen['Monto Total'], errors='coerce').fillna(0)
                     resumen = resumen[resumen['Monto Total'] > 0].sort_values(by='Monto Total', ascending=False)
                     
-                    # Cálculo real de la venta consolidada
                     st.markdown(f'<div style="background-color:#1a1c24; border:1px solid #4CAF50; border-radius:12px; padding:25px; text-align:center; margin-bottom:20px;"><div class="total-label" style="color:#4CAF50">Venta Total Consolidada</div><div style="font-size:45px; font-weight:bold; color:#4CAF50;">${resumen["Monto Total"].sum():,.2f}</div></div>', unsafe_allow_html=True)
                     
                     c1, c2 = st.columns([1, 1])
@@ -154,7 +165,6 @@ if seccion == "📊 Control de Ventas":
                 st.markdown(f'<div class="asesor-header">👤 Asesor: {vendedor_sel}</div>', unsafe_allow_html=True)
                 df_ventas[col_vendedor] = df_ventas[col_vendedor].apply(lambda x: corregir_nombre(x, VENDEDORES_PERMITIDOS))
                 fila_v = df_ventas[df_ventas[col_vendedor] == vendedor_sel]
-                
                 cols_excluir = [col_vendedor] + [c for c in df_ventas.columns if 'TOTAL' in str(c).upper()]
                 cols_datos = [c for c in df_ventas.columns if c not in cols_excluir]
                 datos_fila = fila_v[cols_datos].T.reset_index().iloc[:, :2]
@@ -188,13 +198,15 @@ if seccion == "📊 Control de Ventas":
     except Exception as e:
         st.error(f"Error en ventas: {e}")
 
-# Módulos 2 y 3 (Se mantienen operativos con el resto de la lógica)
+# ==========================================
+# MÓDULO 2: INFORME DE INSTALACIONES
+# ==========================================
 elif seccion == "🛠️ Informe de Instalaciones":
     st.markdown('<div class="asesor-header">🛠️ Control de Instalaciones y Cumplimiento</div>', unsafe_allow_html=True)
     if mapa_meses:
         mes_sel = st.sidebar.selectbox("📅 Seleccionar Periodo (Mes):", list(mapa_meses.keys()))
-        df_inst = cargar_datos(URL_INSTALACIONES, "Instalaciones")
-        df_ref_mes = cargar_datos(URL_VENTAS, mapa_meses[mes_sel])
+        df_inst = cargar_datos(st.session_state.url_instalaciones, "Instalaciones")
+        df_ref_mes = cargar_datos(st.session_state.url_ventas, mapa_meses[mes_sel])
         if df_inst is not None and df_ref_mes is not None:
             cols_fechas = [c for c in df_ref_mes.columns if any(char.isdigit() for char in str(c))]
             f_dt = pd.to_datetime(cols_fechas, errors='coerce').dropna()
@@ -231,8 +243,11 @@ elif seccion == "🛠️ Informe de Instalaciones":
                     df_f_display['FECHA'] = df_f_display['FECHA'].dt.strftime('%Y-%m-%d')
                     st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
 
+# ==========================================
+# MÓDULO 3: GESTIÓN DE ASESORES
+# ==========================================
 elif seccion == "📈 Gestión de Asesores":
-    df_v = cargar_datos(URL_GESTION, "Ventas", limpiar_precios=True)
+    df_v = cargar_datos(st.session_state.url_gestion, "Ventas", limpiar_precios=True)
     if df_v is not None:
         COL_MES, COL_ASESOR, COL_VALOR = 'MES COMERCIAL', 'ASESOR', 'VALOR MENSUAL A PAGAR SIN IVA'
         meses = sorted(df_v[COL_MES].dropna().unique().tolist(), reverse=True)
