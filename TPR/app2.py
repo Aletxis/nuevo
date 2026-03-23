@@ -6,7 +6,7 @@ from thefuzz import process
 import re
 
 # 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="FUTURITY", layout="wide")
+st.set_page_config(page_title="Inmovision - Dashboard Corporativo", layout="wide")
 
 # --- INICIALIZACIÓN DE LINKS DINÁMICOS (SESSION STATE) ---
 if 'url_ventas' not in st.session_state:
@@ -104,7 +104,7 @@ with st.sidebar.expander("⚙️ Configuración de Google Sheets"):
         st.rerun()
 
 st.sidebar.markdown("---")
-seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores"])
+seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores","📈 Gestión Diaria"])
 
 # Carga inicial de meses (usando el link dinámico de Ventas)
 try:
@@ -303,3 +303,107 @@ elif seccion == "📈 Gestión de Asesores":
             st.markdown('<div class="section-title">📋 Listado de Clientes</div>', unsafe_allow_html=True)
             columnas_finales = [c for c in ['CLIENTE ', 'PRODUCTO', 'PAQUETE', COL_VALOR, 'SECTOR', 'FECHA DE INSTALACION'] if c in df_ind.columns]
             st.dataframe(df_ind[columnas_finales].style.format({COL_VALOR: '${:,.2f}'}), use_container_width=True, hide_index=True)
+# ==========================================
+# MÓDULO 4: GESTIÓN DIARIA (CORREGIDO)
+# ==========================================
+elif seccion == "📈 Gestión Diaria":
+    df_gd = cargar_datos(st.session_state.url_gestion, "Ventas", limpiar_precios=True)
+    
+    if df_gd is not None:
+        # 1. Preparación de Fechas
+        df_gd['FECHA DE INSTALACION'] = pd.to_datetime(df_gd['FECHA DE INSTALACION'], errors='coerce')
+        
+        def extraer_fecha_inicio(rango):
+            try:
+                fecha_str = str(rango).split('/')[0].strip()
+                return pd.to_datetime(fecha_str, errors='coerce')
+            except: return pd.NaT
+
+        df_gd['FECHA_INICIO_MES'] = df_gd['MES COMERCIAL'].apply(extraer_fecha_inicio)
+        
+        # --- FILTROS EN BARRA LATERAL ---
+        meses_gd = sorted(df_gd['MES COMERCIAL'].dropna().unique().tolist(), reverse=True)
+        mes_sel_gd = st.sidebar.selectbox("📅 Seleccionar Mes Comercial:", meses_gd, key="gd_mes")
+        
+        vendedores_gd = sorted(df_gd['ASESOR'].dropna().unique().tolist())
+        vendedor_sel_gd = st.sidebar.selectbox("👤 Seleccionar Asesor:", ["TODOS"] + vendedores_gd, key="gd_vendedor")
+
+        # Lógica de Cascada
+        mask_preliminar = (df_gd['MES COMERCIAL'] == mes_sel_gd)
+        if vendedor_sel_gd != "TODOS":
+            mask_preliminar &= (df_gd['ASESOR'] == vendedor_sel_gd)
+        
+        df_temp = df_gd[mask_preliminar]
+        sectores_disponibles = sorted(df_temp['SECTOR'].dropna().astype(str).unique().tolist())
+        sector_sel_gd = st.sidebar.selectbox("📍 Filtrar por Sector:", ["TODOS LOS SECTORES"] + sectores_disponibles, key="gd_sector_filter")
+
+        mask_final = mask_preliminar.copy()
+        if sector_sel_gd != "TODOS LOS SECTORES":
+            mask_final &= (df_gd['SECTOR'].astype(str) == sector_sel_gd)
+        
+        df_filtered = df_gd[mask_final].copy()
+
+        st.markdown(f'<div class="main-header">📋 Gestión Diaria: {vendedor_sel_gd}</div>', unsafe_allow_html=True)
+
+        if not df_filtered.empty:
+            # --- TARJETAS (KPIs) CON CORRECCIÓN .iloc[0] ---
+            c1, c2, c3 = st.columns(3)
+            
+            card_style = 'background-color: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px;'
+            label_style = 'color: #7f8c8d; font-size: 12px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase;'
+            value_style = 'color: #2c3e50; font-size: 18px; font-weight: bold; margin: 0;'
+
+            # 1. Sector Principal
+            mode_sector = df_filtered['SECTOR'].mode()
+            sector_top = mode_sector.iloc[0] if not mode_sector.empty else "N/A"
+            with c1:
+                st.markdown(f'<div style="{card_style} border-left: 8px solid #2ecc71;"><p style="{label_style}">Sector Principal</p><p style="{value_style}">{str(sector_top).upper()}</p></div>', unsafe_allow_html=True)
+
+            # 2. Canal de Venta Top
+            col_canal = 'DE DONDE PROVIENE LA VENTA'
+            mode_canal = df_filtered[col_canal].mode()
+            canal_top = mode_canal.iloc[0] if not mode_canal.empty else "N/A"
+            with c2:
+                st.markdown(f'<div style="{card_style} border-left: 8px solid #3498db;"><p style="{label_style}">Canal de Venta Top</p><p style="{value_style}">{str(canal_top).upper()}</p></div>', unsafe_allow_html=True)
+
+            # 3. Paquete Estrella
+            mode_paquete = df_filtered['PAQUETE'].mode()
+            paquete_top = mode_paquete.iloc[0] if not mode_paquete.empty else "N/A"
+            with c3:
+                st.markdown(f'<div style="{card_style} border-left: 8px solid #f1c40f;"><p style="{label_style}">Paquete Estrella</p><p style="{value_style}">{str(paquete_top).upper()}</p></div>', unsafe_allow_html=True)
+
+            # --- SECCIÓN DE GRÁFICOS ---
+            st.markdown('<div class="section-title">📊 Análisis Detallado</div>', unsafe_allow_html=True)
+            col_izq, col_der = st.columns(2)
+            
+            with col_izq:
+                if sector_sel_gd == "TODOS LOS SECTORES":
+                    fig_sector = px.pie(df_filtered, names='SECTOR', title="Ventas por Sector (%)", hole=0.4)
+                else:
+                    ventas_dia = df_filtered.groupby(df_filtered['FECHA DE INSTALACION'].dt.date).size().reset_index(name='VENTAS')
+                    ventas_dia.columns = ['FECHA', 'VENTAS']
+                    ventas_dia['FECHA'] = ventas_dia['FECHA'].astype(str)
+                    
+                    fig_sector = px.bar(ventas_dia, x='FECHA', y='VENTAS', title=f"Instalaciones en {sector_sel_gd}", text_auto=True, color_discrete_sequence=['#2ecc71'])
+                    fig_sector.update_traces(textposition="outside", cliponaxis=False)
+                    fig_sector.update_xaxes(type='category')
+                
+                fig_sector.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+                st.plotly_chart(fig_sector, use_container_width=True)
+                
+            with col_der:
+                fig_pie_origen = px.pie(df_filtered, names='DE DONDE PROVIENE LA VENTA', title="Canales de Venta")
+                fig_pie_origen.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
+                st.plotly_chart(fig_pie_origen, use_container_width=True)
+
+            # --- TABLA CON FORMATO DE FECHA NATURAL ---
+            st.markdown('<div class="section-title">📝 Listado de Instalaciones</div>', unsafe_allow_html=True)
+            df_display = df_filtered[['FECHA DE INSTALACION', 'ASESOR', 'SECTOR', 'PAQUETE', 'DE DONDE PROVIENE LA VENTA']].copy()
+            meses_es = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+
+            df_display['FECHA DE INSTALACION'] = df_display['FECHA DE INSTALACION'].apply(
+                lambda x: f"{x.day} de {meses_es[x.month]}, {x.year}" if pd.notnull(x) else "Sin Fecha"
+            )
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Sin datos para esta selección.")
