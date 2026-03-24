@@ -91,10 +91,9 @@ PALABRAS_FILTRO = [
     'JUNIO', 'TÉCNICO', 'TECNICO', 'PERSONAL NO COMERCIAL',"EMBAJADORA MAYRA MACHUCA", "EMBAJADORA NAYELI JUELA"
 ]
 
-# --- CONFIGURACIÓN DE BARRA LATERAL ---
+# --- BARRA LATERAL ---
 st.sidebar.markdown(f'<img src="{URL_LOGO}" class="logo-sidebar">', unsafe_allow_html=True)
 
-# NUEVA FUNCIÓN: Cambio de Links
 with st.sidebar.expander("⚙️ Configuración de Google Sheets"):
     st.session_state.url_ventas = st.text_input("Link Control Ventas:", st.session_state.url_ventas)
     st.session_state.url_instalaciones = st.text_input("Link Instalaciones:", st.session_state.url_instalaciones)
@@ -106,7 +105,6 @@ with st.sidebar.expander("⚙️ Configuración de Google Sheets"):
 st.sidebar.markdown("---")
 seccion = st.sidebar.radio("Módulo:", ["📊 Control de Ventas", "🛠️ Informe de Instalaciones", "📈 Gestión de Asesores","📈 Gestión Diaria"])
 
-# Carga inicial de meses (usando el link dinámico de Ventas)
 try:
     file_id_v = st.session_state.url_ventas.split('/')[-2]
     xls_v = pd.ExcelFile(f'https://docs.google.com/spreadsheets/d/{file_id_v}/export?format=xlsx')
@@ -244,7 +242,7 @@ elif seccion == "🛠️ Informe de Instalaciones":
                     st.dataframe(df_f_display[['FECHA', 'VENDEDOR', 'CLIENTE', 'PRODUCTO', 'ESTADO']], use_container_width=True, hide_index=True)
 
 # ==========================================
-# MÓDULO 3: GESTIÓN DE ASESORES
+# MÓDULO 3: GESTIÓN DE ASESORES (ACTUALIZADO CON ARPUS)
 # ==========================================
 elif seccion == "📈 Gestión de Asesores":
     df_v = cargar_datos(st.session_state.url_gestion, "Ventas", limpiar_precios=True)
@@ -258,13 +256,23 @@ elif seccion == "📈 Gestión de Asesores":
         
         if v_sel_gest == "TODOS LOS ASESORES":
             c1, c2, c3 = st.columns(3)
-            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Total Ventas</div><div class="image-value-number">{len(df_mes)}</div></div>', unsafe_allow_html=True)
+            
+            # --- CÁLCULO DE ARPUS ---
+            total_recaudacion = df_mes[COL_VALOR].sum()
+            arpus_valor = total_recaudacion / 22.35 if total_recaudacion > 0 else 0
+            
+            with c1: 
+                st.markdown(f'''
+                    <div class="card-style border-green">
+                        <div class="image-label">ARPUS</div>
+                        <div class="image-value-number">{arpus_valor:,.2f}</div>
+                    </div>
+                ''', unsafe_allow_html=True)
             with c2: 
-                total_recaudacion = df_mes[COL_VALOR].sum()
                 st.markdown(f'<div class="card-style border-blue"><div class="image-label">Recaudación (Sin IVA)</div><div class="image-value-number">${total_recaudacion:,.2f}</div></div>', unsafe_allow_html=True)
             with c3: 
                 promedio = df_mes[COL_VALOR].mean()
-                st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio</div><div class="image-value-number">${promedio:,.2f}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Promedio Unitario</div><div class="image-value-number">${promedio:,.2f}</div></div>', unsafe_allow_html=True)
             
             resumen = df_mes.groupby(COL_ASESOR).agg({COL_ASESOR: 'count', COL_VALOR: 'sum'}).rename(columns={COL_ASESOR: 'CANT.', COL_VALOR: 'MONTO'}).reset_index().sort_values('MONTO', ascending=False)
             st.markdown('<div class="section-title">🏆 Ranking de Recaudación por Asesor</div>', unsafe_allow_html=True)
@@ -282,10 +290,14 @@ elif seccion == "📈 Gestión de Asesores":
         else:
             df_ind = df_mes[df_mes[COL_ASESOR] == v_sel_gest].copy()
             c1, c2 = st.columns(2)
-            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Ventas</div><div class="image-value-number">{len(df_ind)}</div></div>', unsafe_allow_html=True)
+            
+            monto_ind = df_ind[COL_VALOR].sum()
+            arpus_ind = monto_ind / 22.35 if monto_ind > 0 else 0
+            
+            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">ARPUS INDIVIDUAL</div><div class="image-value-number">{arpus_ind:,.2f}</div></div>', unsafe_allow_html=True)
             with c2: 
-                monto_ind = df_ind[COL_VALOR].sum()
                 st.markdown(f'<div class="card-style border-blue"><div class="image-label">Monto (Sin IVA)</div><div class="image-value-number">${monto_ind:,.2f}</div></div>', unsafe_allow_html=True)
+            
             st.markdown(f'<div class="section-title">🔍 Análisis Detallado: {v_sel_gest}</div>', unsafe_allow_html=True)
             g1, g2 = st.columns(2)
             with g1:
@@ -303,109 +315,58 @@ elif seccion == "📈 Gestión de Asesores":
             st.markdown('<div class="section-title">📋 Listado de Clientes</div>', unsafe_allow_html=True)
             columnas_finales = [c for c in ['CLIENTE ', 'PRODUCTO', 'PAQUETE', COL_VALOR, 'SECTOR', 'FECHA DE INSTALACION'] if c in df_ind.columns]
             st.dataframe(df_ind[columnas_finales].style.format({COL_VALOR: '${:,.2f}'}), use_container_width=True, hide_index=True)
+
 # ==========================================
-# MÓDULO 4: GESTIÓN DIARIA (VERSIÓN FINAL PULIDA)
+# MÓDULO 4: GESTIÓN DIARIA
 # ==========================================
 elif seccion == "📈 Gestión Diaria":
     df_gd = cargar_datos(st.session_state.url_gestion, "Ventas", limpiar_precios=True)
-    
     if df_gd is not None:
-        # 1. Preparación de Fechas
         df_gd['FECHA DE INSTALACION'] = pd.to_datetime(df_gd['FECHA DE INSTALACION'], errors='coerce')
-        
-        def extraer_fecha_inicio(rango):
-            try:
-                fecha_str = str(rango).split('/')[0].strip()
-                return pd.to_datetime(fecha_str, errors='coerce')
-            except: return pd.NaT
-
-        df_gd['FECHA_INICIO_MES'] = df_gd['MES COMERCIAL'].apply(extraer_fecha_inicio)
-        
-        # --- FILTROS EN BARRA LATERAL ---
         meses_gd = sorted(df_gd['MES COMERCIAL'].dropna().unique().tolist(), reverse=True)
         mes_sel_gd = st.sidebar.selectbox("📅 Seleccionar Mes Comercial:", meses_gd, key="gd_mes")
-        
         vendedores_gd = sorted(df_gd['ASESOR'].dropna().unique().tolist())
         vendedor_sel_gd = st.sidebar.selectbox("👤 Seleccionar Asesor:", ["TODOS"] + vendedores_gd, key="gd_vendedor")
-
-        # Lógica de Cascada para Sectores
         mask_preliminar = (df_gd['MES COMERCIAL'] == mes_sel_gd)
-        if vendedor_sel_gd != "TODOS":
-            mask_preliminar &= (df_gd['ASESOR'] == vendedor_sel_gd)
-        
+        if vendedor_sel_gd != "TODOS": mask_preliminar &= (df_gd['ASESOR'] == vendedor_sel_gd)
         df_temp = df_gd[mask_preliminar]
         sectores_disponibles = sorted(df_temp['SECTOR'].dropna().astype(str).unique().tolist())
-        
         sector_sel_gd = st.sidebar.selectbox("📍 Filtrar por Sector:", ["TODOS LOS SECTORES"] + sectores_disponibles, key="gd_sector_filter")
-
-        # Filtro Final
         mask_final = mask_preliminar.copy()
-        if sector_sel_gd != "TODOS LOS SECTORES":
-            mask_final &= (df_gd['SECTOR'].astype(str) == sector_sel_gd)
-        
+        if sector_sel_gd != "TODOS LOS SECTORES": mask_final &= (df_gd['SECTOR'].astype(str) == sector_sel_gd)
         df_filtered = df_gd[mask_final].copy()
 
         st.markdown(f'<div class="main-header">📋 Gestión Diaria: {vendedor_sel_gd}</div>', unsafe_allow_html=True)
 
         if not df_filtered.empty:
-            # --- TARJETAS (KPIs) ---
             c1, c2, c3 = st.columns(3)
-            
-            # 1. Sector Principal
             sector_top = df_filtered['SECTOR'].mode()[0] if not df_filtered['SECTOR'].empty else "N/A"
-            with c1:
-                st.markdown(f'<div class="card-style border-green"><div class="image-label">Sector Principal</div><div class="image-value-number" style="font-size:20px;">{str(sector_top).upper()}</div></div>', unsafe_allow_html=True)
-
-            # 2. Canal de Venta Top (Reemplazo del Promedio)
+            with c1: st.markdown(f'<div class="card-style border-green"><div class="image-label">Sector Principal</div><div class="image-value-number" style="font-size:20px;">{str(sector_top).upper()}</div></div>', unsafe_allow_html=True)
             col_canal = 'DE DONDE PROVIENE LA VENTA'
             canal_top = df_filtered[col_canal].mode()[0] if not df_filtered[col_canal].empty else "N/A"
-            with c2:
-                st.markdown(f'<div class="card-style border-blue"><div class="image-label">Canal de Venta Top</div><div class="image-value-number" style="font-size:18px;">{str(canal_top).upper()}</div></div>', unsafe_allow_html=True)
-
-            # 3. Paquete Estrella
+            with c2: st.markdown(f'<div class="card-style border-blue"><div class="image-label">Canal de Venta Top</div><div class="image-value-number" style="font-size:18px;">{str(canal_top).upper()}</div></div>', unsafe_allow_html=True)
             paquete_top = df_filtered['PAQUETE'].mode()[0] if not df_filtered['PAQUETE'].empty else "N/A"
-            with c3:
-                st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Paquete Estrella</div><div class="image-value-number" style="font-size:18px;">{paquete_top}</div></div>', unsafe_allow_html=True)
+            with c3: st.markdown(f'<div class="card-style" style="border-left: 8px solid #f1c40f;"><div class="image-label">Paquete Estrella</div><div class="image-value-number" style="font-size:18px;">{paquete_top}</div></div>', unsafe_allow_html=True)
 
-            # --- SECCIÓN DE GRÁFICOS ---
             st.markdown('<div class="section-title">📊 Análisis Detallado</div>', unsafe_allow_html=True)
             col_izq, col_der = st.columns(2)
-            
             with col_izq:
                 if sector_sel_gd == "TODOS LOS SECTORES":
                     fig_sector = px.pie(df_filtered, names='SECTOR', title="Ventas por Sector (%)", hole=0.4)
                 else:
-                    # GRÁFICA DE BARRAS SOLICITADA
                     ventas_dia = df_filtered.groupby(df_filtered['FECHA DE INSTALACION'].dt.date).size().reset_index(name='VENTAS')
-                    ventas_dia.columns = ['FECHA', 'VENTAS']
-                    fig_sector = px.bar(ventas_dia, x='FECHA', y='VENTAS', title=f"Instalaciones en {sector_sel_gd}", text_auto=True, color_discrete_sequence=['#2ecc71'])
-                    fig_sector.update_traces(textposition="outside", cliponaxis=False)
-                
+                    fig_sector = px.bar(ventas_dia, x='FECHA DE INSTALACION', y='VENTAS', title=f"Instalaciones en {sector_sel_gd}", text_auto=True, color_discrete_sequence=['#2ecc71'])
                 fig_sector.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_sector, use_container_width=True)
-                
             with col_der:
                 fig_pie_origen = px.pie(df_filtered, names='DE DONDE PROVIENE LA VENTA', title="Canales de Venta")
                 fig_pie_origen.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="white")
                 st.plotly_chart(fig_pie_origen, use_container_width=True)
 
-            # --- TABLA CON FORMATO DE FECHA NATURAL (Día de Mes, Año) ---
             st.markdown('<div class="section-title">📝 Listado de Instalaciones</div>', unsafe_allow_html=True)
-            
             df_display = df_filtered[['FECHA DE INSTALACION', 'ASESOR', 'SECTOR', 'PAQUETE', 'DE DONDE PROVIENE LA VENTA']].copy()
-            
-            # Diccionario para meses en español
-            meses_es = {
-                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-            }
-
-            # Aplicamos formato "15 de Octubre, 2025" y quitamos los ceros
-            df_display['FECHA DE INSTALACION'] = df_display['FECHA DE INSTALACION'].apply(
-                lambda x: f"{x.day} de {meses_es[x.month]}, {x.year}" if pd.notnull(x) else "Sin Fecha"
-            )
-            
+            meses_es = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+            df_display['FECHA DE INSTALACION'] = df_display['FECHA DE INSTALACION'].apply(lambda x: f"{x.day} de {meses_es[x.month]}, {x.year}" if pd.notnull(x) else "Sin Fecha")
             st.dataframe(df_display, use_container_width=True, hide_index=True)
-
         else:
             st.warning("Sin datos para esta selección.")
